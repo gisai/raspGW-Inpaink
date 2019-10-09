@@ -1,58 +1,18 @@
 
-function getScreenType (type){
-  switch (type) {
-    case "1.54":
-    return 0;       
-    case "1.54b":
-    return 1; 
-    case "1.54c":
-    return 2; 
-    case "2.13":
-    return 3; 
-    case "2.13b":
-    return 4; 
-    case "2.13c":
-    return 5;       
-    case "2.13d":
-    return 6; 
-    case "2.7":
-    return 7; 
-    case "2.7b":
-    return 8; 
-    case "2.9":
-    return 9; 
-    case "2.9b":
-    return 10;       
-    case "2.9c":
-    return 11; 
-    case "4.2":
-    return 12; 
-    case "4.2b":
-    return 13; 
-    case "4.2c":
-    return 14; 
-    case "5.83":
-    return 15;       
-    case "5.83b":
-    return 16; 
-    case "5.83c":
-    return 17; 
-    case "7.5":
-    return 18; 
-    case "7.5b":
-    return 19; 
-    case "7.5c":
-    return 20;     
-  }
-}
-
 /* UUIDs ---------------------------------------------------------------------*/
 const SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 const CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 
 var noble = require('@abandonware/noble');
-var connected;
+var connected = false;
+
+var macaddress;
+var data;
+var w;
+var h;
+var map;
+var type; 
 
 noble.on('discover', peripheral => {
   // connect to the first peripheral that is scanned
@@ -64,8 +24,11 @@ noble.on('discover', peripheral => {
 
 function connectAndSetUp(peripheral) {
 
+  peripheral.on('disconnect', () => console.log('disconnected'));
+
   peripheral.connect(error => {
     console.log('Connected to', peripheral.id);
+    connected = peripheral;
 
     // specify the services and characteristics to discover
     const serviceUUIDs = [SERVICE_UUID];
@@ -77,8 +40,6 @@ function connectAndSetUp(peripheral) {
       onServicesAndCharacteristicsDiscovered
       );
   });
-  
-  peripheral.on('disconnect', () => console.log('disconnected'));
 }
 
 function onServicesAndCharacteristicsDiscovered(error, services, characteristics) {
@@ -117,7 +78,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       console.log("Buffer to send: " + bufferToSend.toString('hex'));
 
 
-      btSerial.write(bufferToSend, function(err, bytesWritten) {
+      epdCharacteristic.write(bufferToSend, function(err, bytesWritten) {
         if (err) console.log(err);
         console.log("wrote: L");
       });
@@ -159,7 +120,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
         if (err) console.log(err);
         console.log("wrote: S");
         status = 0;
-        btSerial.close(); //
+        connected.disconnect(); //
         return res.send({
           message: 'Success at updating the device: ' + macaddress,
           });
@@ -214,8 +175,8 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       epdCharacteristic.write(Buffer.from('S', 'ascii'), function(err, bytesWritten) {
         if (err) console.log(err);
         console.log("wrote: S");
-        status = 0;
-        btSerial.close(); //
+        status = 4;
+        connected.disconnect(); //
         return res.send({
           message: 'Success at updating the device: ' + macaddress,
           });
@@ -233,7 +194,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
   });
 
   if (status == 0) {
-    console.error('COMENZAMOS TRANSMISION');
+    console.log('COMENZAMOS TRANSMISION');
     epdCharacteristic.write(Buffer.concat([Buffer.from('I', 'ascii'), Buffer.from([type])]), function(err, bytesWritten) {
       if (err) console.log(err);
       console.log("wrote: I");
@@ -241,34 +202,77 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
   }          
 }
 
-var macaddress;
-var data;
-var w;
-var h;
-var map;
-var type = getScreenType(req.body.type); 
-
 exports.device_update = (req, res) => {
-
+  type = getScreenType(req.body.type);
   macaddress = req.body.mac;
   data = req.body.data;
   w = req.body.w;
   h = req.body.h;
-  map = new Map();
-  console.log ("Screen type: "+req.body.type);
-  type = getScreenType(req.body.type); 
-  console.log("Processed mac: " + macaddress);
-
+  map = new Map(); 
   status = 0;
   pxInd =0;
   hexInd = 0;
   dSizeCalc = 0; 
+  console.log ("Screen type: "+req.body.type);
+  console.log("Processed mac: " + macaddress);
 
   noble.startScanning([SERVICE_UUID]);   
 
+  setTimeout(myFunc(res), 10000);
+}
 
-
+function myFunc(res) {
+  try{
+    connected.disconnect();
+  }catch(error){}
+  connected = false;
+  noble.stopScanning();
   res.status(200).json({message: 'ERROR at updating the device: ' + mac});
-  return;
+}
 
+function getScreenType (type){
+  switch (type) {
+    case "1.54":
+    return 0;       
+    case "1.54b":
+    return 1; 
+    case "1.54c":
+    return 2; 
+    case "2.13":
+    return 3; 
+    case "2.13b":
+    return 4; 
+    case "2.13c":
+    return 5;       
+    case "2.13d":
+    return 6; 
+    case "2.7":
+    return 7; 
+    case "2.7b":
+    return 8; 
+    case "2.9":
+    return 9; 
+    case "2.9b":
+    return 10;       
+    case "2.9c":
+    return 11; 
+    case "4.2":
+    return 12; 
+    case "4.2b":
+    return 13; 
+    case "4.2c":
+    return 14; 
+    case "5.83":
+    return 15;       
+    case "5.83b":
+    return 16; 
+    case "5.83c":
+    return 17; 
+    case "7.5":
+    return 18; 
+    case "7.5b":
+    return 19; 
+    case "7.5c":
+    return 20;     
+  }
 }
