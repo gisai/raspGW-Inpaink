@@ -10,13 +10,14 @@ const DevicesController = require('../controllers/devices.js');
 //var btSerial = new(require('bluetooth-serial-port')).BluetoothSerialPort();
 
 /* API GET */
-//router.get('/', DevicesController.devices_get_all);
+router.get('/', DevicesController.devices_get_all);
 
-router.get('/', function(req, res) {
-
+router.get('/test/', function(req, res) {
+	console.log("Started BT legacy");
 	btSerial = new(require('bluetooth-serial-port')).BluetoothSerialPort();
 
 	var result = [];
+	result.push({"address": "12321321", "name": "13213"});
 	btSerial.on('found', function(address, name) {
 		console.log('Found: ' + address + ' with name ' + name);
 		result.push({"address": address, "name": name});  

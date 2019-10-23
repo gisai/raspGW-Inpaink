@@ -1,11 +1,15 @@
 
 /* UUIDs ---------------------------------------------------------------------*/
-const SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-const CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+const SERVICE_UUID = "4fafc2011fb5459e8fccc5c9c331914b";
+const CHARACTERISTIC_UUID = "beb5483e36e14688b7f5ea07361b26a8";
 
+//BLocking
+var waiting = false;
 
 var noble = require('@abandonware/noble');
 var connected = false;
+
+var wantToConnect = false;
 
 var macaddress;
 var data;
@@ -14,12 +18,32 @@ var h;
 var map;
 var type; 
 
+var discoveredDevices = {};
+var devCount = 0;
+
+const sleep = (waitTimeInMs) => new Promise(resolve => setTimeout(resolve, waitTimeInMs));
+
 noble.on('discover', peripheral => {
-  // connect to the first peripheral that is scanned
-  noble.stopScanning();
-  const name = peripheral.advertisement.localName;
-  console.log(`Connecting to '${name}' ${peripheral.id}`);
-  connectAndSetUp(peripheral);
+  if(wantToConnect){
+    console.log('Device discovered!');
+    const name = peripheral.advertisement.localName;
+    if(name != "esp32") return;
+    noble.stopScanning();
+    console.log(`Connecting to '${name}' ${peripheral.id}`);
+    connectAndSetUp(peripheral);
+    wantToConnect = false;
+  }else{
+    var newDevice = {
+      "id": devCount,
+      "mac": peripheral.id,
+      "screen": peripheral.advertisement.localName,
+      "rssi": peripheral.rssi,
+      "batt": "50",
+      "initcode" : peripheral.id 
+    };
+    devCount +=1;
+    discoveredDevices.device.push(newDevice);
+  }
 });
 
 function connectAndSetUp(peripheral) {
@@ -47,14 +71,13 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
   const epdCharacteristic = characteristics[0];
 
   // data callback receives notifications
-  epdCharacteristic.on('data', (buffer, isNotification) => {
-    console.log('Received: "' + buffer + '"');
-    console.log('received message:', buffer.toString());
+  function processData(buffer) {
+    console.log('Read message: "' + buffer + '"');
     if (buffer.toString() == 'Ok!' && status == 0 && type !=1) {
       //Emepzamos el envio
       rqMsg = '';
 
-      while ((pxInd < w * h) && (rqMsg.length < 512 - 12)) { //Bytes disponibles
+      while ((pxInd < w * h) && (rqMsg.length < 256 - 12)) { //Bytes disponibles
         rqMsg += data[hexInd];
         pxInd += 4;
         hexInd++;
@@ -75,7 +98,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
 
 
       var bufferToSend = Buffer.concat([Buffer.from('L', 'ascii'), buffInd, dSize, Buffer.from(rqMsg, 'hex')]);
-      console.log("Buffer to send: " + bufferToSend.toString('hex'));
+      console.log("Buffer to send1: " + bufferToSend.toString('hex'));
 
 
       epdCharacteristic.write(bufferToSend, function(err, bytesWritten) {
@@ -86,7 +109,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       //Emepzamos el envio pantalla a color
       rqMsg = '';
 
-      while ((pxInd < w * h) && (rqMsg.length < 512 - 12)) { //Bytes disponibles
+      while ((pxInd < w * h) && (rqMsg.length < 256 - 12)) { //Bytes disponibles
         rqMsg += data[hexInd];
           pxInd += 2; //cada pixel son 2 bits, por eso para cada hex tenemos avanzar 2 pixeles.
           hexInd++;
@@ -107,7 +130,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
 
       var bufferToSend = Buffer.concat([Buffer.from('L', 'ascii'), buffInd, dSize, Buffer.from(rqMsg, 'hex')]);
       console.log("Buffer to send info: dSizeCalc"+dSizeCalc+" buffIndCalc: "+buffIndCalc+" pxInd: "+pxInd);
-      console.log("Buffer to send: " + bufferToSend.toString('hex'));
+      console.log("Buffer to send2: " + bufferToSend.toString('hex'));
 
 
       epdCharacteristic.write(bufferToSend, function(err, bytesWritten) {
@@ -119,12 +142,13 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       epdCharacteristic.write(Buffer.from('S', 'ascii'), function(err, bytesWritten) {
         if (err) console.log(err);
         console.log("wrote: S");
-        status = 0;
-        connected.disconnect(); //
-        return res.send({
-          message: 'Success at updating the device: ' + macaddress,
-          });
       });
+      status = 4;
+      console.log("Desconectamos....");
+      return response.send({
+        message: 'Success at updating the device: ' + macaddress,
+      });
+      myFunc();
     } else if (buffer.toString() == 'Ok!' && status == 1 && type == 1) {
       //Hacemos el Next
 
@@ -142,7 +166,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
        //Emepzamos el envio
       rqMsg = '';
 
-      while ((pxInd < w * h) && (rqMsg.length < 512 - 12)) { //Bytes disponibles
+      while ((pxInd < w * h) && (rqMsg.length < 256 - 12)) { //Bytes disponibles
         rqMsg += dataNext[hexInd];
         pxInd += 4; //en caso de rojo, cada pixel es un bit.
         hexInd++;
@@ -162,36 +186,44 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
 
 
       var bufferToSend = Buffer.concat([Buffer.from('L', 'ascii'), buffInd, dSize, Buffer.from(rqMsg, 'hex')]);
-      console.log("N_Buffer to send: " + bufferToSend.toString('hex'));
+      console.log("N_Buffer to send3: " + bufferToSend.toString('hex'));
 
 
       epdCharacteristic.write(bufferToSend, function(err, bytesWritten) {
         if (err) console.log(err);
         console.log("wrote: L");
-
       });
     } else if (buffer.toString() == 'Ok!' && status == 3 && type == 1) {
+      console.log("Finalizamos...");
       //Hacemos el Show
       epdCharacteristic.write(Buffer.from('S', 'ascii'), function(err, bytesWritten) {
         if (err) console.log(err);
         console.log("wrote: S");
-        status = 4;
-        connected.disconnect(); //
-        return res.send({
-          message: 'Success at updating the device: ' + macaddress,
-          });
       });
+      status = 4;
+      console.log("Desconectamos....");
+      return response.send({
+        message: 'Success at updating the device: ' + macaddress,
+      });
+      myFunc();
     }
-  });
+  trytoread();
+  }
 
-  // subscribe to be notified whenever the peripheral update the characteristic
-  epdCharacteristic.subscribe(error => {
-    if (error) {
-      console.error('Error subscribing to epdCharacteristic');
-    } else {
-      console.log('Subscribed for epdCharacteristic notifications');
+  async function trytoread(){
+    if(status != 4){
+      let data = "not";
+      epdCharacteristic.read(function(err, read) {
+        if (err) console.log(err);
+        console.log("READ: "+read);
+        data = read;
+      });
+      while (data != "Ok!"){
+        await sleep(100);
+      }
+      processData(data);
     }
-  });
+  }
 
   if (status == 0) {
     console.log('COMENZAMOS TRANSMISION');
@@ -199,10 +231,14 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       if (err) console.log(err);
       console.log("wrote: I");
     });
+    trytoread();
   }          
-}
+};
 
-exports.device_update = (req, res) => {
+var response;
+
+exports.device_update = async (req, res) => {
+  response = res;
   type = getScreenType(req.body.type);
   macaddress = req.body.mac;
   data = req.body.data;
@@ -216,18 +252,23 @@ exports.device_update = (req, res) => {
   console.log ("Screen type: "+req.body.type);
   console.log("Processed mac: " + macaddress);
 
-  noble.startScanning([SERVICE_UUID]);   
+  while (noble.state != "poweredOn") await sleep(100);
+  wantToConnect = true;
 
-  setTimeout(myFunc(res), 10000);
+  noble.startScanning([SERVICE_UUID],true);   
+
+  //setTimeout(myFunc(res), 10000);
 }
 
-function myFunc(res) {
+async function myFunc() {
   try{
+    await sleep(100);
     connected.disconnect();
-  }catch(error){}
+    connected = false;
+  }catch(error){console.log(error);}
   connected = false;
   noble.stopScanning();
-  res.status(200).json({message: 'ERROR at updating the device: ' + mac});
+  response.status(200).json({message: 'ERROR at updating the device: '});
 }
 
 function getScreenType (type){
@@ -274,5 +315,28 @@ function getScreenType (type){
     return 19; 
     case "7.5c":
     return 20;     
+  }
+}
+
+/* GET */
+exports.devices_get_all = async (req, res, next) => {
+  //Retrieve/scan devices
+  if(!waiting){
+    waiting = true;
+    wantToConnect = false;
+    discoveredDevices = {"device":[]};
+    devCount = 0;
+    while (noble.state != "poweredOn") await sleep(100);
+    console.log('SCAN STARTED');
+    noble.startScanning([SERVICE_UUID],false);
+    await sleep(10000);
+    console.log("Discovered devices:");
+    console.log(discoveredDevices);
+    waiting = false;
+    //JSON error handling(only for testing)
+    res.status(200).json(discoveredDevices);
+  }else{
+    console.log('Waiting for another request to finish');
+      res.status(500).json({error: {message: 'Waiting for another request to finish'}});
   }
 }
