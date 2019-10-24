@@ -330,6 +330,7 @@ exports.devices_get_all = async (req, res, next) => {
     console.log('SCAN STARTED');
     noble.startScanning([SERVICE_UUID],false);
     await sleep(10000);
+    noble.stopScanning();
     console.log("Discovered devices:");
     console.log(discoveredDevices);
     waiting = false;
