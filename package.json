@@ -13,6 +13,7 @@
     "@abandonware/noble": "^1.9.2-5",
     "bluetooth-serial-port": "^2.2.6",
     "body-parser": "^1.18.2",
+    "canvas": "^2.6.0",
     "cors": "^2.8.5",
     "express": "^4.16.3",
     "jimp": "^0.2.28",

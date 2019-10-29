@@ -10,6 +10,10 @@ var noble = require('@abandonware/noble');
 var connected = false;
 
 var wantToConnect = false;
+var wantToGetName = false;
+var idToGet = '';
+var deviceFound = '';
+
 
 var macaddress;
 var data;
@@ -18,14 +22,23 @@ var h;
 var map;
 var type; 
 
+var dataNext;
+
 var discoveredDevices = {};
 var devCount = 0;
 
 const sleep = (waitTimeInMs) => new Promise(resolve => setTimeout(resolve, waitTimeInMs));
 
 noble.on('discover', peripheral => {
-  if(wantToConnect){
-    console.log('Device discovered!');
+  console.log('Device discovered with name: '+peripheral.advertisement.localName);
+  if(wantToGetName){
+    const id = peripheral.id;
+    console.log("Checking if "+id+" is the same as"+ idToGet);
+    if (id === idToGet){
+      deviceFound = peripheral.advertisement.localName;
+    }
+  }
+  else if(wantToConnect){
     const name = peripheral.advertisement.localName;
     if(name != "esp32") return;
     noble.stopScanning();
@@ -125,7 +138,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       dSizeCalc += buffIndCalc;
 
       const dSize = Buffer.alloc(3);
-      dSize.writeUInt16LE(dSizeCalc, 0, 3)
+      dSize.writeUInt16LE(dSizeCalc, 0, 3);
 
 
       var bufferToSend = Buffer.concat([Buffer.from('L', 'ascii'), buffInd, dSize, Buffer.from(rqMsg, 'hex')]);
@@ -163,7 +176,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       });
     } else if (buffer.toString() == 'Ok!' && status == 2 && type == 1) {
       //Hacemos el Load del Next
-      let dataNext = req.body.dataNext;
+      //let dataNext = req.body.dataNext;
        //Emepzamos el envio
       rqMsg = '';
 
@@ -325,6 +338,7 @@ exports.device_update = async (req, res) => {
   if(!waiting){
     waiting = true;
     let mac = req.query.mac;
+    macaddress = mac;
     //Check MAC format
     if(!macRegex.test(mac)){
       waiting = false;
@@ -345,27 +359,7 @@ exports.device_update = async (req, res) => {
         res.status(400).json({error: {message: 'Image format not valid', error: err}});
         return
       }
-
-      response = res;
-      type = getScreenType(req.body.type);
-      macaddress = req.body.mac;
-      data = req.body.data;
-      w = req.body.w;
-      h = req.body.h;
-      map = new Map(); 
-      status = 0;
-      pxInd =0;
-      hexInd = 0;
-      dSizeCalc = 0; 
-      console.log ("Screen type: "+req.body.type);
-      console.log("Processed mac: " + macaddress);
-
-      while (noble.state != "poweredOn") await sleep(100);
-      wantToConnect = true;
-
-      noble.startScanning([SERVICE_UUID], false);   
-
-      timeout = setTimeout(screenDisconect(false), 10000);  
+      initUpload(res);
     });
   } else {
     console.log('Waiting for another request to finish');
@@ -373,11 +367,66 @@ exports.device_update = async (req, res) => {
   } 
 }
 
+async function initUpload(res){
+  while (noble.state != "poweredOn") await sleep(100);
+
+  wantToGetName = true;
+  idToGet = macaddress.replace(/:/g, '');
+  noble.startScanning([SERVICE_UUID], false);
+  await sleep(2000);
+  wantToGetName = false;
+  if(deviceFound === ''){
+    wantToGetName = false;
+    console.log('Device not found!!!')
+    res.status(404).json({error:'Device not found'});
+    return;
+  }
+  wantToGetName = false;
+  noble.stopScanning();
+  var detectedIndex = getIndexFromType(deviceFound.split("-")[1]);
+  if(detectedIndex === ""){
+    console.log('Device name malformed')
+    res.status(400).json({error:'Device name malformed'});
+    return;
+  }
+  rbClick(detectedIndex);
+  console.log('Comenzamos tratamiento de IMAGEN...');
+  await processFiles();
+  console.log('Dithering IMAGEN...');
+  await procImg(true,false);
+
+  console.log('Construimos el payload Imagen');
+  uploadImage();
+
+  response = res;
+  type = getScreenTypefrom_epdInd(epdInd);
+  data = rqMsg;
+  dataNext = nextMsg; 
+  //w = req.body.w;
+  //h = req.body.h;
+  map = new Map(); 
+  status = 0;
+  pxInd =0;
+  hexInd = 0;
+  dSizeCalc = 0; 
+  console.log ("Screen type: "+type);
+  console.log("Processed mac: " + macaddress);
+
+  wantToConnect = true;
+  console.log("FINAL");
+  //noble.startScanning([SERVICE_UUID], false);   
+
+  timeout = setTimeout(screenDisconect(false), 10000);  
+}
+
 
 
 //----------------------------------SCRIPT-----------------------------------------
 var multer = require('multer'); 
 var fs = require('fs');
+const { createCanvas, loadImage, Image } = require('canvas');
+var Jimp = require('jimp');
+
 
 //Paths
 var folder = './Uploads/';
@@ -410,25 +459,18 @@ var upload = multer({
 
 /*.......*/
 
-var srcBox, srcImg, dstImg;
-var epdArr, epdInd, palArr;
+var srcBox, srcImg, sourceJimp, dstImg;
+var epdInd, nud_h, nud_w, nud_x, nud_y;
 var curPal;
 
-function getElm(n) { return document.getElementById(n); }
 
-function setInn(n, i) { document.getElementById(n).innerHTML = i; }
-
-function processFiles(files) {
-  var file = files[0];
-  var reader = new FileReader();
-  srcImg = new Image();
-  reader.onload = function(e) {
-    setInn('srcBox', '<img id="imgView" class="sourceImage">');
-    var img = getElm('imgView');
-    img.src = e.target.result;
-    srcImg.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
+async function processFiles() {
+  srcImg = 0;
+  //epdInd = 0;
+  srcImg = await Jimp.read('./Uploads/image.bmp');
+  await srcImg.write('./Uploads/image2.jpg');
+  //srcImg.src = e.target.result;
+  console.log('Imagen cargada para proceso.');
 }
 
 function drop(e) {
@@ -458,6 +500,8 @@ function RB(vl, tx) {
   return ((vl % 3) > 0 ? ' ' : '<br>') + '<input type="radio" name="kind" value="m' + vl +
   '" onclick="rbClick(' + vl + ');"' + (vl == 0 ? 'checked="true"' : '') + '/>' + tx;
 }
+
+/*
 window.onload = function() {
   srcBox = getElm('srcBox');
   srcBox.ondragenter = ignoreDrag;
@@ -465,61 +509,7 @@ window.onload = function() {
   srcBox.ondrop = drop;
   srcImg = 0;
   epdInd = 0;
-  palArr = [
-    [
-      [0, 0, 0],
-      [255, 255, 255]
-    ],
-    [
-      [0, 0, 0],
-      [255, 255, 255],
-      [127, 0, 0]
-    ],
-      [
-      [0, 0, 0],
-      [255, 255, 255],
-      [127, 127, 127]
-    ],
-    [
-      [0, 0, 0],
-      [255, 255, 255],
-      [127, 127, 127],
-      [127, 0, 0]
-    ],
-    [
-      [0, 0, 0],
-      [255, 255, 255]
-    ],
-    [
-      [0, 0, 0],
-      [255, 255, 255],
-      [220, 180, 0]
-    ]
-  ];
-
-  epdArr = [
-    [200, 200, 0],
-    [200, 200, 3],
-    [152, 152, 5],
-    [122, 250, 0],
-    [104, 212, 1],
-    [104, 212, 5],
-    [104, 212, 0],
-    [176, 264, 0],
-    [176, 264, 1],
-    [128, 296, 0],
-    [128, 296, 1],
-    [128, 296, 5],
-    [400, 300, 0],
-    [400, 300, 1],
-    [400, 300, 5],
-    [600, 448, 0],
-    [600, 448, 1],
-    [600, 448, 5],
-    [640, 384, 0],
-    [640, 384, 1],
-    [640, 384, 5]
-  ];
+  
 
   setInn('BT',
     Btn(0, 'Select image file', 'processFiles(this.files);') +
@@ -557,6 +547,55 @@ window.onload = function() {
     RB(19, '7.5b&ensp;') + 
     RB(20, '7.5c&ensp;')
   );
+}
+*/
+function getIndexFromType (edpType){   
+  switch (edpType) {
+    case "1.54": 
+      return "0";
+    case "1.54b":      
+      return "1";
+    case "1.54c": 
+      return "2";
+    case "2.13": 
+      return "3";
+    case "2.13b":  
+      return "4";
+    case "2.13c": 
+      return "5";
+    case "2.13d":       
+      return "6";
+    case "2.7":  
+      return "7";
+    case "2.7b": 
+      return "8";
+    case "2.9": 
+      return "9";
+    case "2.9b": 
+      return "10";
+    case "2.9c":       
+      return "11";
+    case "4.2": 
+      return "12";
+    case "4.2b": 
+      return "13";
+    case "4.2c":
+      return "14";
+    case "5.83": 
+      return "15";
+    case "5.83b":        
+      return "16";
+    case "5.83c":
+      return "17";
+    case "7.5":  
+      return "18";
+    case "7.5b": 
+      return "19";
+    case "7.5c": 
+      return "20";
+    default:
+      return "";
+  }
 }
 
 function getScreenTypefrom_epdInd (epdInd){   
@@ -607,12 +646,12 @@ function getScreenTypefrom_epdInd (epdInd){
 }
 
 function rbClick(index) {
-  getElm('nud_w').value = +epdArr[index][0];
-  getElm('nud_h').value = +epdArr[index][1];
+  console.log("Index selected: "+index)
+  nud_w = +epdArr[index][0];
+  nud_h = +epdArr[index][1];
   epdInd = index;
 }
 
-var source;
 var dX, dY, dW, dH, sW, sH;
 
 function getVal(p, i) {
@@ -654,34 +693,32 @@ function getNear(r, g, b) {
   return ind;
 }
 
+var canvas;
 
-function procImg(isLvl, isRed) {
-  if (document.getElementsByClassName('sourceImage').length == 0) {
-    alert('First select image');
-    return;
-  }
+async function procImg(isLvl, isRed) {
   var palInd = epdArr[epdInd][2];
   if (isRed && ((palInd & 1) == 0)) {
-    alert('This white-black display');
+    console.log('This white-black display');
     return;
   }
   if (!isRed) palInd = palInd & 0xFE;
   curPal = palArr[palInd];
-  getElm('dstBox').innerHTML =
-  '<span class="title">Processed image</span><br><canvas id="canvas"></canvas>';
-  var canvas = getElm('canvas');
-  sW = srcImg.width;
-  sH = srcImg.height;
-  source = getElm('source');
+  
+  canvas = createCanvas(200, 200);
+  sW = srcImg.bitmap.width;
+  sH = srcImg.bitmap.height;
+  const source = createCanvas(200, 200);
   source.width = sW;
   source.height = sH;
-  source.getContext('2d').drawImage(srcImg, 0, 0, sW, sH);
-  dX = parseInt(getElm('nud_x').value);
-  dY = parseInt(getElm('nud_y').value);
-  dW = parseInt(getElm('nud_w').value);
-  dH = parseInt(getElm('nud_h').value);
+  console.log('sourceW:'+sW+' sourceH:'+sH);
+  const myimg = await loadImage('./Uploads/image.bmp');
+  source.getContext('2d').drawImage(myimg, 0, 0, sW, sH);
+  dX = parseInt(nud_x);
+  dY = parseInt(nud_y);
+  dW = parseInt(nud_w);
+  dH = parseInt(nud_h);
   if ((dW < 3) || (dH < 3)) {
-    alert('Image is too small');
+    console.log('Image is too small');
     return;
   }
   canvas.width = dW;
@@ -797,14 +834,14 @@ function u_next() {
 }
 
 function u_done() {
-  setInn('logTag', 'Complete!');
+  console.log('Performed complete!');
   return u_send('SHOW_', true);
 }
 
 function u_show(a, k1, k2) {
   var x = '' + (k1 + k2 * pxInd / a.length);
   if (x.length > 5) x = x.substring(0, 5);
-  setInn('logTag', 'Progress: ' + x + '%');
+  console.log('Progress: ' + x + '%');
   return u_send(rqMsg + wordToStr(rqMsg.length) + 'LOAD_', pxInd >= a.length);
 }
 
@@ -829,9 +866,8 @@ function u_data(a, c, k1, k2) {
 }
 
 function u_data2(a, c, k1, k2, next) {
-  var canvas = getElm('canvas');
-  var w = dispW = canvas.width;
-  var h = dispH = canvas.height;
+  w = dispW = canvas.width;
+  h = dispH = canvas.height;
 
   rqMsg = '';
 
@@ -864,7 +900,9 @@ function u_data2(a, c, k1, k2, next) {
     }
   }
 
-  if (!$('#device-selec :selected').val()) {
+
+  console.log("Pasamos a simular el ajax");
+  /*if (!$('#device-selec :selected').val()) {
     alert("Please select device before uploading");
     return;
   }
@@ -880,7 +918,7 @@ function u_data2(a, c, k1, k2, next) {
     success: function(data) {
       console.log("Data received: " + data);
     }
-  });
+  });*/
 
   return rqMsg;
 }
@@ -902,19 +940,18 @@ function u_line(a, k1, k2) {
 }
 
 function uploadImage() {
-  var c = getElm('canvas');
-  var w = dispW = c.width;
-  var h = dispH = c.height;
-  var p = c.getContext('2d').getImageData(0, 0, w, h);
+  w = dispW = canvas.width;
+  h = dispH = canvas.height;
+  var p = canvas.getContext('2d').getImageData(0, 0, w, h);
   //La imagen está en p
-
+  console.log("p: "+p.data);
   var a = new Array(w * h);
   var i = 0;    
   for (var y = 0; y < h; y++)
     for (var x = 0; x < w; x++, i++) {
       a[i] = getVal(p, i << 2);
     }
-  console.log("a: "+a);
+  //console.log("a: "+a);
 
   dispX = 0;
   pxInd = 0;
@@ -937,3 +974,60 @@ function uploadImage() {
     if (stInd == 0) return u_data2(a, ((epdInd == 1) || (epdInd == 12)) ? -1 : 0, 0, 50, true);
   }
 }
+
+
+var palArr = [
+    [
+      [0, 0, 0],
+      [255, 255, 255]
+    ],
+    [
+      [0, 0, 0],
+      [255, 255, 255],
+      [127, 0, 0]
+    ],
+      [
+      [0, 0, 0],
+      [255, 255, 255],
+      [127, 127, 127]
+    ],
+    [
+      [0, 0, 0],
+      [255, 255, 255],
+      [127, 127, 127],
+      [127, 0, 0]
+    ],
+    [
+      [0, 0, 0],
+      [255, 255, 255]
+    ],
+    [
+      [0, 0, 0],
+      [255, 255, 255],
+      [220, 180, 0]
+    ]
+  ];
+
+  var epdArr = [
+    [200, 200, 0],
+    [200, 200, 3],
+    [152, 152, 5],
+    [122, 250, 0],
+    [104, 212, 1],
+    [104, 212, 5],
+    [104, 212, 0],
+    [176, 264, 0],
+    [176, 264, 1],
+    [128, 296, 0],
+    [128, 296, 1],
+    [128, 296, 5],
+    [400, 300, 0],
+    [400, 300, 1],
+    [400, 300, 5],
+    [600, 448, 0],
+    [600, 448, 1],
+    [600, 448, 5],
+    [640, 384, 0],
+    [640, 384, 1],
+    [640, 384, 5]
+  ];
