@@ -31,8 +31,8 @@ const sleep = (waitTimeInMs) => new Promise(resolve => setTimeout(resolve, waitT
 
 noble.on('discover', peripheral => {
   console.log('Device discovered with name: '+peripheral.advertisement.localName);
+  const id = peripheral.id;
   if(wantToGetName){
-    const id = peripheral.id;
     console.log("Checking if "+id+" is the same as"+ idToGet);
     if (id === idToGet){
       deviceFound = peripheral.advertisement.localName;
@@ -40,7 +40,7 @@ noble.on('discover', peripheral => {
   }
   else if(wantToConnect){
     const name = peripheral.advertisement.localName;
-    if(name != "esp32") return;
+    if (id != idToGet) return;
     noble.stopScanning();
     console.log(`Connecting to '${name}' ${peripheral.id}`);
     connectAndSetUp(peripheral);
@@ -399,7 +399,8 @@ async function initUpload(res){
   uploadImage();
 
   response = res;
-  type = getScreenTypefrom_epdInd(epdInd);
+  console.log('Sacamos el tipo con edpInd: '+epdInd);
+  type = parseInt(epdInd);
   data = rqMsg;
   dataNext = nextMsg; 
   //w = req.body.w;
@@ -414,9 +415,9 @@ async function initUpload(res){
 
   wantToConnect = true;
   console.log("FINAL");
-  //noble.startScanning([SERVICE_UUID], false);   
+  noble.startScanning([SERVICE_UUID], false);   
 
-  timeout = setTimeout(screenDisconect(false), 10000);  
+  timeout = setTimeout(screenDisconect, 20000, false);  
 }
 
 
@@ -424,7 +425,7 @@ async function initUpload(res){
 //----------------------------------SCRIPT-----------------------------------------
 var multer = require('multer'); 
 var fs = require('fs');
-const { createCanvas, loadImage, Image } = require('canvas');
+//const { createCanvas, loadImage, Image } = require('canvas');
 var Jimp = require('jimp');
 
 
@@ -463,15 +464,427 @@ var srcBox, srcImg, sourceJimp, dstImg;
 var epdInd, nud_h, nud_w, nud_x, nud_y;
 var curPal;
 
+function rbClick(index) {
+  console.log("Index selected: "+index)
+  nud_w = +epdArr[index][0];
+  nud_h = +epdArr[index][1];
+  //nud_x = +epdArr[index][0];
+  //nud_y = +epdArr[index][1];
+  nud_x = 0;
+  nud_y = 0;
+  epdInd = index;
+}
+
+var dX, dY, dW, dH, sW, sH;
+
+function getVal(p, i) {
+  if ((p.data[i] == 0x00) && (p.data[i + 1] == 0x00)) return 0;
+  if ((p.data[i] == 0xFF) && (p.data[i + 1] == 0xFF)) return 1;
+  //if ((p.data[i] == 0x7F) && (p.data[i + 1] == 0x7F)) return 2;
+  if ((p.data[i] == 0x7F) && (p.data[i + 1] == 0x7F)) return 0;
+  return 3;
+}
+
+function setVal(p, i, c) {
+  p.data[i] = curPal[c][0];
+  p.data[i + 1] = curPal[c][1];
+  p.data[i + 2] = curPal[c][2];
+  p.data[i + 3] = 255;
+}
+
+function addVal(c, r, g, b, k) {
+  return [c[0] + (r * k) / 32, c[1] + (g * k) / 32, c[2] + (b * k) / 32];
+}
+
+function getErr(r, g, b, stdCol) {
+  r -= stdCol[0];
+  g -= stdCol[1];
+  b -= stdCol[2];
+  return r * r + g * g + b * b;
+}
+
+function getNear(r, g, b) {
+  var ind = 0;
+  var err = getErr(r, g, b, curPal[0]);
+  for (var i = 1; i < curPal.length; i++) {
+    var cur = getErr(r, g, b, curPal[i]);
+    if (cur < err) {
+      err = cur;
+      ind = i;
+    }
+  }
+  return ind;
+}
+
+
 
 async function processFiles() {
   srcImg = 0;
   //epdInd = 0;
   srcImg = await Jimp.read('./Uploads/image.bmp');
-  await srcImg.write('./Uploads/image2.jpg');
+
+  dX = parseInt(nud_x);
+  dY = parseInt(nud_y);
+  dW = parseInt(nud_w);
+  dH = parseInt(nud_h);
+
+  w = dW;
+  h = dH;
+
+  console.log('Imagen origen: '+srcImg.bitmap.width+' x '+srcImg.bitmap.height);
+
+
+  //console.log(srcImg.bitmap.data);
+  //await srcImg.write('./Uploads/image2.jpg');
   //srcImg.src = e.target.result;
   console.log('Imagen cargada para proceso.');
 }
+
+
+var pDst;
+var pSrc;
+
+async function procImg(isLvl, isRed) {
+  var palInd = epdArr[epdInd][2];
+  if (isRed && ((palInd & 1) == 0)) {
+    console.log('This white-black display');
+    return;
+  }
+  if (!isRed) palInd = palInd & 0xFE;
+  curPal = palArr[palInd];
+  
+
+  srcImg.resize(dW, dH);
+
+
+  sW = srcImg.bitmap.width;
+  sH = srcImg.bitmap.height;
+
+  console.log('Imagen redimensionda a: '+sW+' x '+sH);
+
+  if ((dW < 3) || (dH < 3)) {
+    console.log('Image is too small');
+    return;
+  }
+
+  var index = 0;
+  pSrc = {};
+  pSrc.data = srcImg.bitmap.data;
+
+  console.log("TEST: "+pSrc.data[0] +" "+ pSrc.data[1] +" "+ pSrc.data[2] +" "+ pSrc.data[3]);
+  console.log("TEST: "+pSrc.data[4] +" "+ pSrc.data[5] +" "+ pSrc.data[6] +" "+ pSrc.data[7]);
+
+  pDst = {};
+  pDst.data = [];
+
+  if (isLvl) {
+    for (var j = 0; j < dH; j++) {
+      var y = dY + j;
+      if ((y < 0) || (y >= sH)) {
+        for (var i = 0; i < dW; i++, index += 4) setVal(pDst, index, (i + j) % 2 == 0 ? 1 : 0);
+        continue;
+      }
+      for (var i = 0; i < dW; i++) {
+        var x = dX + i;
+        if ((x < 0) || (x >= sW)) {
+          setVal(pDst, index, (i + j) % 2 == 0 ? 1 : 0);
+          index += 4;
+          continue;
+        }
+        var pos = (y * sW + x) * 4;
+        setVal(pDst, index, getNear(pSrc.data[pos], pSrc.data[pos + 1], pSrc.data[pos + 2]));
+        index += 4;
+      }
+    }
+  } else {
+    var aInd = 0;
+    var bInd = 1;
+    var errArr = new Array(2);
+    errArr[0] = new Array(dW);
+    errArr[1] = new Array(dW);
+    for (var i = 0; i < dW; i++)
+      errArr[bInd][i] = [0, 0, 0];
+    for (var j = 0; j < dH; j++) {
+      var y = dY + j;
+      if ((y < 0) || (y >= sH)) {
+        for (var i = 0; i < dW; i++, index += 4) setVal(pDst, index, (i + j) % 2 == 0 ? 1 : 0);
+        continue;
+      }
+      aInd = ((bInd = aInd) + 1) & 1;
+      for (var i = 0; i < dW; i++) errArr[bInd][i] = [0, 0, 0];
+      for (var i = 0; i < dW; i++) {
+        var x = dX + i;
+        if ((x < 0) || (x >= sW)) {
+          setVal(pDst, index, (i + j) % 2 == 0 ? 1 : 0);
+          index += 4;
+          continue;
+        }
+        var pos = (y * sW + x) * 4;
+        var old = errArr[aInd][i];
+        var r = pSrc.data[pos] + old[0];
+        var g = pSrc.data[pos + 1] + old[1];
+        var b = pSrc.data[pos + 2] + old[2];
+        var colVal = curPal[getNear(r, g, b)];
+        pDst.data[index++] = colVal[0];
+        pDst.data[index++] = colVal[1];
+        pDst.data[index++] = colVal[2];
+        pDst.data[index++] = 255;
+        r = (r - colVal[0]);
+        g = (g - colVal[1]);
+        b = (b - colVal[2]);
+        if (i == 0) {
+          errArr[bInd][i] = addVal(errArr[bInd][i], r, g, b, 7.0);
+          errArr[bInd][i + 1] = addVal(errArr[bInd][i + 1], r, g, b, 2.0);
+          errArr[aInd][i + 1] = addVal(errArr[aInd][i + 1], r, g, b, 7.0);
+        } else if (i == dW - 1) {
+          errArr[bInd][i - 1] = addVal(errArr[bInd][i - 1], r, g, b, 7.0);
+          errArr[bInd][i] = addVal(errArr[bInd][i], r, g, b, 9.0);
+        } else {
+          errArr[bInd][i - 1] = addVal(errArr[bInd][i - 1], r, g, b, 3.0);
+          errArr[bInd][i] = addVal(errArr[bInd][i], r, g, b, 5.0);
+          errArr[bInd][i + 1] = addVal(errArr[bInd][i + 1], r, g, b, 1.0);
+          errArr[aInd][i + 1] = addVal(errArr[aInd][i + 1], r, g, b, 7.0);
+        }
+      }
+    }
+  }
+  console.log("TEST: "+pDst.data[0] +" "+ pDst.data[1] +" "+ pDst.data[2] +" "+ pDst.data[3]);
+  console.log("TEST: "+pDst.data[4] +" "+ pDst.data[5] +" "+ pDst.data[6] +" "+ pDst.data[7]);
+  //canvas.getContext('2d').putImageData(pDst, 0, 0);
+}
+
+var pxInd, stInd;
+var dispW, dispH;
+var xhReq, dispX;
+var rqPrf, rqMsg;
+
+function byteToStr(v) {
+  var s = v.toString(16);
+  while (s.length < 2) s = '0' + s;
+  return s.slice(-2);
+}
+
+function oldbyteToStr(v){return String.fromCharCode((v & 0xF) + 97, ((v >> 4) & 0xF) + 97);}
+function oldwordToStr(v){return byteToStr(v&0xFF) + byteToStr((v>>8)&0xFF);}
+
+function wordToStr(v) { 
+  var s= byteToStr(v&0xFF) + byteToStr((v>>8)&0xFF);
+  console.log(s + " " + rqMsg.length);
+  return s;
+}
+
+function u_send(cmd, next) {
+  xhReq.open('POST', rqPrf + cmd, true);
+  xhReq.send('');
+  if (next) stInd++;
+  return 0;
+}
+
+function u_next() {
+  lnInd = 0;
+  pxInd = 0;
+  u_send('NEXT_', true);
+}
+
+function u_done() {
+  console.log('Performed complete!');
+  return u_send('SHOW_', true);
+}
+
+function u_show(a, k1, k2) {
+  var x = '' + (k1 + k2 * pxInd / a.length);
+  if (x.length > 5) x = x.substring(0, 5);
+  console.log('Progress: ' + x + '%');
+  return u_send(rqMsg + wordToStr(rqMsg.length) + 'LOAD_', pxInd >= a.length);
+}
+
+function u_data(a, c, k1, k2) {
+  rqMsg = '';
+  if (c == -1) {
+    while ((pxInd < a.length) && (rqMsg.length < 1000)) {
+      var v = 0;
+      for (var i = 0; i < 16; i += 2)
+        if (pxInd < a.length) v |= (a[pxInd++] << i);
+      rqMsg += wordToStr(v);
+    }
+  } else {
+    while ((pxInd < a.length) && (rqMsg.length < 1000)) {
+      var v = 0;
+      for (var i = 0; i < 8; i++)
+        if ((pxInd < a.length) && (a[pxInd++] != c)) v |= (128 >> i);
+      rqMsg += byteToStr(v);
+    }
+  }
+  return u_show(a, k1, k2);
+}
+
+function u_data2(a, c, k1, k2, next) {
+  //w = dispW = canvas.width;
+  //h = dispH = canvas.height;
+
+  rqMsg = '';
+
+  if (c == -1) {
+    while (pxInd < a.length) {
+      var v = 0;
+      for (var i = 0; i < 16; i += 2)
+        if (pxInd < a.length) v |= (a[pxInd++] << i);
+      rqMsg += wordToStr(v);
+    }
+  } else {
+    while (pxInd < a.length) {
+      var v = 0;
+      for (var i = 0; i < 8; i++)
+        if ((pxInd < a.length) && (a[pxInd++] != c)) v |= (128 >> i);
+      rqMsg += byteToStr(v);
+    }
+  }
+  nextMsg = '';
+  pxInd = 0;
+  
+  if (next){
+    c=3; //Por las pantallas a color
+    while (pxInd < a.length) {
+      var v = 0;
+      for (var i = 0; i < 8; i++)
+        if ((pxInd < a.length) && (a[pxInd++] != c)) v |= (128 >> i);
+      nextMsg += byteToStr(v);
+      console.log(a.length+" "+rqMsg.length);
+    }
+  }
+
+
+  console.log("Pasamos a simular el ajax");
+  /*if (!$('#device-selec :selected').val()) {
+    alert("Please select device before uploading");
+    return;
+  }
+
+  var mac = $('#device-selec :selected').val().split("@")[1];
+
+  $.ajax({
+    url: host,
+    type: 'PUT',
+    data: JSON.stringify({ mac: mac, w: w, h: h, type: getScreenTypefrom_epdInd(epdInd), data: rqMsg, dataNext: nextMsg }),
+
+    contentType: "application/json",
+    success: function(data) {
+      console.log("Data received: " + data);
+    }
+  });*/
+
+  return rqMsg;
+}
+
+function u_line(a, k1, k2) {
+  var x;
+  rqMsg = '';
+  while (rqMsg.length < 1000) {
+    x = 0;
+    while (x < 122) {
+      var v = 0;
+      for (var i = 0;
+        (i < 8) && (x < 122); i++, x++)
+        if (a[pxInd++] != 0) v |= (128 >> i);
+      rqMsg += byteToStr(v);
+    }
+  }
+  return u_show(a, k1, k2);
+}
+
+function uploadImage() {
+  w = dW;
+  h = dH;
+  //var p = canvas.getContext('2d').getImageData(0, 0, w, h);
+  //La imagen está en p
+  //console.log("p: "+pDst.data);
+  var a = new Array(w * h);
+  var i = 0;    
+  for (var y = 0; y < h; y++)
+    for (var x = 0; x < w; x++, i++) {
+      a[i] = getVal(pDst, i << 2);
+    }
+  console.log("a: "+a);
+
+  dispX = 0;
+  pxInd = 0;
+  stInd = 0;
+  
+  console.log("epdInd seleccionado: "+epdInd);
+
+  if (epdInd == 3) {
+    if (stInd == 0) return u_line(a, 0, 100);
+    if (stInd == 1) return u_done();
+  }
+  if (((epdInd % 3) == 0) || (epdInd == 7)) {
+    if (stInd == 0) return u_data2(a, 0, 0, 100);
+    if (stInd == 1) return u_done();
+  }
+  if (epdInd > 15) {
+    if (stInd == 0) return u_data2(a, -1, 0, 100);
+    if (stInd == 1) return u_done();
+  } else {
+    if (stInd == 0) return u_data2(a, ((epdInd == 1) || (epdInd == 12)) ? -1 : 0, 0, 50, true);
+  }
+}
+
+
+var palArr = [
+    [
+      [0, 0, 0],
+      [255, 255, 255]
+    ],
+    [
+      [0, 0, 0],
+      [255, 255, 255],
+      [127, 0, 0]
+    ],
+      [
+      [0, 0, 0],
+      [255, 255, 255],
+      [127, 127, 127]
+    ],
+    [
+      [0, 0, 0],
+      [255, 255, 255],
+      [127, 127, 127],
+      [127, 0, 0]
+    ],
+    [
+      [0, 0, 0],
+      [255, 255, 255]
+    ],
+    [
+      [0, 0, 0],
+      [255, 255, 255],
+      [220, 180, 0]
+    ]
+  ];
+
+  var epdArr = [
+    [200, 200, 0],
+    [200, 200, 3],
+    [152, 152, 5],
+    [122, 250, 0],
+    [104, 212, 1],
+    [104, 212, 5],
+    [104, 212, 0],
+    [176, 264, 0],
+    [176, 264, 1],
+    [128, 296, 0],
+    [128, 296, 1],
+    [128, 296, 5],
+    [400, 300, 0],
+    [400, 300, 1],
+    [400, 300, 5],
+    [600, 448, 0],
+    [600, 448, 1],
+    [600, 448, 5],
+    [640, 384, 0],
+    [640, 384, 1],
+    [640, 384, 5]
+  ];
+
 
 function drop(e) {
   e.stopPropagation();
@@ -598,8 +1011,8 @@ function getIndexFromType (edpType){
   }
 }
 
-function getScreenTypefrom_epdInd (epdInd){   
-  switch (epdInd) {
+function getScreenTypefrom_epdInd (Index){   
+  switch (Index) {
     case 0:
     return "1.54";       
     case 1:
@@ -644,390 +1057,3 @@ function getScreenTypefrom_epdInd (epdInd){
     return "7.5c";   
   }
 }
-
-function rbClick(index) {
-  console.log("Index selected: "+index)
-  nud_w = +epdArr[index][0];
-  nud_h = +epdArr[index][1];
-  epdInd = index;
-}
-
-var dX, dY, dW, dH, sW, sH;
-
-function getVal(p, i) {
-  if ((p.data[i] == 0x00) && (p.data[i + 1] == 0x00)) return 0;
-  if ((p.data[i] == 0xFF) && (p.data[i + 1] == 0xFF)) return 1;
-  //if ((p.data[i] == 0x7F) && (p.data[i + 1] == 0x7F)) return 2;
-  if ((p.data[i] == 0x7F) && (p.data[i + 1] == 0x7F)) return 0;
-  return 3;
-}
-
-function setVal(p, i, c) {
-  p.data[i] = curPal[c][0];
-  p.data[i + 1] = curPal[c][1];
-  p.data[i + 2] = curPal[c][2];
-  p.data[i + 3] = 255;
-}
-
-function addVal(c, r, g, b, k) {
-  return [c[0] + (r * k) / 32, c[1] + (g * k) / 32, c[2] + (b * k) / 32];
-}
-
-function getErr(r, g, b, stdCol) {
-  r -= stdCol[0];
-  g -= stdCol[1];
-  b -= stdCol[2];
-  return r * r + g * g + b * b;
-}
-
-function getNear(r, g, b) {
-  var ind = 0;
-  var err = getErr(r, g, b, curPal[0]);
-  for (var i = 1; i < curPal.length; i++) {
-    var cur = getErr(r, g, b, curPal[i]);
-    if (cur < err) {
-      err = cur;
-      ind = i;
-    }
-  }
-  return ind;
-}
-
-var canvas;
-
-async function procImg(isLvl, isRed) {
-  var palInd = epdArr[epdInd][2];
-  if (isRed && ((palInd & 1) == 0)) {
-    console.log('This white-black display');
-    return;
-  }
-  if (!isRed) palInd = palInd & 0xFE;
-  curPal = palArr[palInd];
-  
-  canvas = createCanvas(200, 200);
-  sW = srcImg.bitmap.width;
-  sH = srcImg.bitmap.height;
-  const source = createCanvas(200, 200);
-  source.width = sW;
-  source.height = sH;
-  console.log('sourceW:'+sW+' sourceH:'+sH);
-  const myimg = await loadImage('./Uploads/image.bmp');
-  source.getContext('2d').drawImage(myimg, 0, 0, sW, sH);
-  dX = parseInt(nud_x);
-  dY = parseInt(nud_y);
-  dW = parseInt(nud_w);
-  dH = parseInt(nud_h);
-  if ((dW < 3) || (dH < 3)) {
-    console.log('Image is too small');
-    return;
-  }
-  canvas.width = dW;
-  canvas.height = dH;
-  var index = 0;
-  var pSrc = source.getContext('2d').getImageData(0, 0, sW, sH);
-  var pDst = canvas.getContext('2d').getImageData(0, 0, dW, dH);
-  if (isLvl) {
-    for (var j = 0; j < dH; j++) {
-      var y = dY + j;
-      if ((y < 0) || (y >= sH)) {
-        for (var i = 0; i < dW; i++, index += 4) setVal(pDst, index, (i + j) % 2 == 0 ? 1 : 0);
-        continue;
-      }
-      for (var i = 0; i < dW; i++) {
-        var x = dX + i;
-        if ((x < 0) || (x >= sW)) {
-          setVal(pDst, index, (i + j) % 2 == 0 ? 1 : 0);
-          index += 4;
-          continue;
-        }
-        var pos = (y * sW + x) * 4;
-        setVal(pDst, index, getNear(pSrc.data[pos], pSrc.data[pos + 1], pSrc.data[pos + 2]));
-        index += 4;
-      }
-    }
-  } else {
-    var aInd = 0;
-    var bInd = 1;
-    var errArr = new Array(2);
-    errArr[0] = new Array(dW);
-    errArr[1] = new Array(dW);
-    for (var i = 0; i < dW; i++)
-      errArr[bInd][i] = [0, 0, 0];
-    for (var j = 0; j < dH; j++) {
-      var y = dY + j;
-      if ((y < 0) || (y >= sH)) {
-        for (var i = 0; i < dW; i++, index += 4) setVal(pDst, index, (i + j) % 2 == 0 ? 1 : 0);
-        continue;
-      }
-      aInd = ((bInd = aInd) + 1) & 1;
-      for (var i = 0; i < dW; i++) errArr[bInd][i] = [0, 0, 0];
-      for (var i = 0; i < dW; i++) {
-        var x = dX + i;
-        if ((x < 0) || (x >= sW)) {
-          setVal(pDst, index, (i + j) % 2 == 0 ? 1 : 0);
-          index += 4;
-          continue;
-        }
-        var pos = (y * sW + x) * 4;
-        var old = errArr[aInd][i];
-        var r = pSrc.data[pos] + old[0];
-        var g = pSrc.data[pos + 1] + old[1];
-        var b = pSrc.data[pos + 2] + old[2];
-        var colVal = curPal[getNear(r, g, b)];
-        pDst.data[index++] = colVal[0];
-        pDst.data[index++] = colVal[1];
-        pDst.data[index++] = colVal[2];
-        pDst.data[index++] = 255;
-        r = (r - colVal[0]);
-        g = (g - colVal[1]);
-        b = (b - colVal[2]);
-        if (i == 0) {
-          errArr[bInd][i] = addVal(errArr[bInd][i], r, g, b, 7.0);
-          errArr[bInd][i + 1] = addVal(errArr[bInd][i + 1], r, g, b, 2.0);
-          errArr[aInd][i + 1] = addVal(errArr[aInd][i + 1], r, g, b, 7.0);
-        } else if (i == dW - 1) {
-          errArr[bInd][i - 1] = addVal(errArr[bInd][i - 1], r, g, b, 7.0);
-          errArr[bInd][i] = addVal(errArr[bInd][i], r, g, b, 9.0);
-        } else {
-          errArr[bInd][i - 1] = addVal(errArr[bInd][i - 1], r, g, b, 3.0);
-          errArr[bInd][i] = addVal(errArr[bInd][i], r, g, b, 5.0);
-          errArr[bInd][i + 1] = addVal(errArr[bInd][i + 1], r, g, b, 1.0);
-          errArr[aInd][i + 1] = addVal(errArr[aInd][i + 1], r, g, b, 7.0);
-        }
-      }
-    }
-  }
-  canvas.getContext('2d').putImageData(pDst, 0, 0);
-}
-
-var pxInd, stInd;
-var dispW, dispH;
-var xhReq, dispX;
-var rqPrf, rqMsg;
-
-function byteToStr(v) {
-  var s = v.toString(16);
-  while (s.length < 2) s = '0' + s;
-  return s.slice(-2);
-}
-
-function oldbyteToStr(v){return String.fromCharCode((v & 0xF) + 97, ((v >> 4) & 0xF) + 97);}
-function oldwordToStr(v){return byteToStr(v&0xFF) + byteToStr((v>>8)&0xFF);}
-
-function wordToStr(v) { 
-  var s= byteToStr(v&0xFF) + byteToStr((v>>8)&0xFF);
-  console.log(s + " " + rqMsg.length);
-  return s;
-}
-
-function u_send(cmd, next) {
-  xhReq.open('POST', rqPrf + cmd, true);
-  xhReq.send('');
-  if (next) stInd++;
-  return 0;
-}
-
-function u_next() {
-  lnInd = 0;
-  pxInd = 0;
-  u_send('NEXT_', true);
-}
-
-function u_done() {
-  console.log('Performed complete!');
-  return u_send('SHOW_', true);
-}
-
-function u_show(a, k1, k2) {
-  var x = '' + (k1 + k2 * pxInd / a.length);
-  if (x.length > 5) x = x.substring(0, 5);
-  console.log('Progress: ' + x + '%');
-  return u_send(rqMsg + wordToStr(rqMsg.length) + 'LOAD_', pxInd >= a.length);
-}
-
-function u_data(a, c, k1, k2) {
-  rqMsg = '';
-  if (c == -1) {
-    while ((pxInd < a.length) && (rqMsg.length < 1000)) {
-      var v = 0;
-      for (var i = 0; i < 16; i += 2)
-        if (pxInd < a.length) v |= (a[pxInd++] << i);
-      rqMsg += wordToStr(v);
-    }
-  } else {
-    while ((pxInd < a.length) && (rqMsg.length < 1000)) {
-      var v = 0;
-      for (var i = 0; i < 8; i++)
-        if ((pxInd < a.length) && (a[pxInd++] != c)) v |= (128 >> i);
-      rqMsg += byteToStr(v);
-    }
-  }
-  return u_show(a, k1, k2);
-}
-
-function u_data2(a, c, k1, k2, next) {
-  w = dispW = canvas.width;
-  h = dispH = canvas.height;
-
-  rqMsg = '';
-
-  if (c == -1) {
-    while (pxInd < a.length) {
-      var v = 0;
-      for (var i = 0; i < 16; i += 2)
-        if (pxInd < a.length) v |= (a[pxInd++] << i);
-      rqMsg += wordToStr(v);
-    }
-  } else {
-    while (pxInd < a.length) {
-      var v = 0;
-      for (var i = 0; i < 8; i++)
-        if ((pxInd < a.length) && (a[pxInd++] != c)) v |= (128 >> i);
-      rqMsg += byteToStr(v);
-    }
-  }
-  nextMsg = '';
-  pxInd = 0;
-  
-  if (next){
-    c=3; //Por las pantallas a color
-    while (pxInd < a.length) {
-      var v = 0;
-      for (var i = 0; i < 8; i++)
-        if ((pxInd < a.length) && (a[pxInd++] != c)) v |= (128 >> i);
-      nextMsg += byteToStr(v);
-      console.log(a.length+" "+rqMsg.length);
-    }
-  }
-
-
-  console.log("Pasamos a simular el ajax");
-  /*if (!$('#device-selec :selected').val()) {
-    alert("Please select device before uploading");
-    return;
-  }
-
-  var mac = $('#device-selec :selected').val().split("@")[1];
-
-  $.ajax({
-    url: host,
-    type: 'PUT',
-    data: JSON.stringify({ mac: mac, w: w, h: h, type: getScreenTypefrom_epdInd(epdInd), data: rqMsg, dataNext: nextMsg }),
-
-    contentType: "application/json",
-    success: function(data) {
-      console.log("Data received: " + data);
-    }
-  });*/
-
-  return rqMsg;
-}
-
-function u_line(a, k1, k2) {
-  var x;
-  rqMsg = '';
-  while (rqMsg.length < 1000) {
-    x = 0;
-    while (x < 122) {
-      var v = 0;
-      for (var i = 0;
-        (i < 8) && (x < 122); i++, x++)
-        if (a[pxInd++] != 0) v |= (128 >> i);
-      rqMsg += byteToStr(v);
-    }
-  }
-  return u_show(a, k1, k2);
-}
-
-function uploadImage() {
-  w = dispW = canvas.width;
-  h = dispH = canvas.height;
-  var p = canvas.getContext('2d').getImageData(0, 0, w, h);
-  //La imagen está en p
-  console.log("p: "+p.data);
-  var a = new Array(w * h);
-  var i = 0;    
-  for (var y = 0; y < h; y++)
-    for (var x = 0; x < w; x++, i++) {
-      a[i] = getVal(p, i << 2);
-    }
-  //console.log("a: "+a);
-
-  dispX = 0;
-  pxInd = 0;
-  stInd = 0;
-  
-  console.log("epdInd seleccionado: "+epdInd);
-
-  if (epdInd == 3) {
-    if (stInd == 0) return u_line(a, 0, 100);
-    if (stInd == 1) return u_done();
-  }
-  if (((epdInd % 3) == 0) || (epdInd == 7)) {
-    if (stInd == 0) return u_data2(a, 0, 0, 100);
-    if (stInd == 1) return u_done();
-  }
-  if (epdInd > 15) {
-    if (stInd == 0) return u_data2(a, -1, 0, 100);
-    if (stInd == 1) return u_done();
-  } else {
-    if (stInd == 0) return u_data2(a, ((epdInd == 1) || (epdInd == 12)) ? -1 : 0, 0, 50, true);
-  }
-}
-
-
-var palArr = [
-    [
-      [0, 0, 0],
-      [255, 255, 255]
-    ],
-    [
-      [0, 0, 0],
-      [255, 255, 255],
-      [127, 0, 0]
-    ],
-      [
-      [0, 0, 0],
-      [255, 255, 255],
-      [127, 127, 127]
-    ],
-    [
-      [0, 0, 0],
-      [255, 255, 255],
-      [127, 127, 127],
-      [127, 0, 0]
-    ],
-    [
-      [0, 0, 0],
-      [255, 255, 255]
-    ],
-    [
-      [0, 0, 0],
-      [255, 255, 255],
-      [220, 180, 0]
-    ]
-  ];
-
-  var epdArr = [
-    [200, 200, 0],
-    [200, 200, 3],
-    [152, 152, 5],
-    [122, 250, 0],
-    [104, 212, 1],
-    [104, 212, 5],
-    [104, 212, 0],
-    [176, 264, 0],
-    [176, 264, 1],
-    [128, 296, 0],
-    [128, 296, 1],
-    [128, 296, 5],
-    [400, 300, 0],
-    [400, 300, 1],
-    [400, 300, 5],
-    [600, 448, 0],
-    [600, 448, 1],
-    [600, 448, 5],
-    [640, 384, 0],
-    [640, 384, 1],
-    [640, 384, 5]
-  ];
