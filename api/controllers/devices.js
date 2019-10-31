@@ -90,6 +90,7 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
 
   // Function that process new data received
   function processData(buffer) {
+    console.log("Status: "+status);
     console.log('Read message: "' + buffer + '"');
     if (buffer.toString() == 'Ok!' && status == 0 && type !=1) {
       //Emepzamos el envio
@@ -163,8 +164,8 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       });
       status = 4;
       console.log("Desconectamos....");
-      screenDisconect(false);
       clearTimeout(timeout);
+      screenDisconect(false);
       return response.send({
         message: 'Success at updating the device: ' + macaddress,
       });
@@ -221,8 +222,8 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       });
       status = 4;
       console.log("Desconectamos....");
-      screenDisconect(false);
       clearTimeout(timeout);
+      screenDisconect(false);
       return response.send({
         message: 'Success at updating the device: ' + macaddress,
       });
@@ -258,13 +259,15 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
   }          
 };
 
-function screenDisconect(needResp) {
+async function screenDisconect(needResp) {
   try{
+    await sleep(1000);
     connected.disconnect();
     connected = false;
   }catch(error){console.log(error);}
   connected = false;
   noble.stopScanning();
+  waiting = false;
   if (needResp)
     response.status(200).json({message: 'ERROR at updating the device: '});
 }
@@ -376,7 +379,7 @@ async function initUpload(res){
   console.log("FINAL");
   noble.startScanning([SERVICE_UUID], false);   
 
-  timeout = setTimeout(screenDisconect, 20000, true);  
+  timeout = setTimeout(screenDisconect, 30000, true);  
 }
 
 
