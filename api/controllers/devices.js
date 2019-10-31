@@ -14,12 +14,12 @@ var wantToGetName = false;
 var idToGet = '';
 var deviceFound = '';
 
+var response,timeout;
 
 var macaddress;
 var data;
 var w;
 var h;
-var map;
 var type; 
 
 var dataNext;
@@ -261,53 +261,6 @@ function screenDisconect(resp) {
     response.status(200).json({message: 'ERROR at updating the device: '});
 }
 
-function getScreenType (type){
-  switch (type) {
-    case "1.54":
-    return 0;       
-    case "1.54b":
-    return 1; 
-    case "1.54c":
-    return 2; 
-    case "2.13":
-    return 3; 
-    case "2.13b":
-    return 4; 
-    case "2.13c":
-    return 5;       
-    case "2.13d":
-    return 6; 
-    case "2.7":
-    return 7; 
-    case "2.7b":
-    return 8; 
-    case "2.9":
-    return 9; 
-    case "2.9b":
-    return 10;       
-    case "2.9c":
-    return 11; 
-    case "4.2":
-    return 12; 
-    case "4.2b":
-    return 13; 
-    case "4.2c":
-    return 14; 
-    case "5.83":
-    return 15;       
-    case "5.83b":
-    return 16; 
-    case "5.83c":
-    return 17; 
-    case "7.5":
-    return 18; 
-    case "7.5b":
-    return 19; 
-    case "7.5c":
-    return 20;     
-  }
-}
-
 /* GET */
 exports.devices_get_all = async (req, res, next) => {
   //Retrieve/scan devices
@@ -332,7 +285,7 @@ exports.devices_get_all = async (req, res, next) => {
   }
 }
 
-var response,timeout;
+
 
 exports.device_update = async (req, res) => {
   if(!waiting){
@@ -403,9 +356,7 @@ async function initUpload(res){
   type = parseInt(epdInd);
   data = rqMsg;
   dataNext = nextMsg; 
-  //w = req.body.w;
-  //h = req.body.h;
-  map = new Map(); 
+
   status = 0;
   pxInd =0;
   hexInd = 0;
@@ -425,7 +376,6 @@ async function initUpload(res){
 //----------------------------------SCRIPT-----------------------------------------
 var multer = require('multer'); 
 var fs = require('fs');
-//const { createCanvas, loadImage, Image } = require('canvas');
 var Jimp = require('jimp');
 
 
@@ -516,11 +466,8 @@ function getNear(r, g, b) {
   return ind;
 }
 
-
-
 async function processFiles() {
   srcImg = 0;
-  //epdInd = 0;
   srcImg = await Jimp.read('./Uploads/image.bmp');
 
   dX = parseInt(nud_x);
@@ -532,12 +479,6 @@ async function processFiles() {
   h = dH;
 
   console.log('Imagen origen: '+srcImg.bitmap.width+' x '+srcImg.bitmap.height);
-
-
-  //console.log(srcImg.bitmap.data);
-  //await srcImg.write('./Uploads/image2.jpg');
-  //srcImg.src = e.target.result;
-  console.log('Imagen cargada para proceso.');
 }
 
 
@@ -570,9 +511,6 @@ async function procImg(isLvl, isRed) {
   var index = 0;
   pSrc = {};
   pSrc.data = srcImg.bitmap.data;
-
-  console.log("TEST: "+pSrc.data[0] +" "+ pSrc.data[1] +" "+ pSrc.data[2] +" "+ pSrc.data[3]);
-  console.log("TEST: "+pSrc.data[4] +" "+ pSrc.data[5] +" "+ pSrc.data[6] +" "+ pSrc.data[7]);
 
   pDst = {};
   pDst.data = [];
@@ -648,9 +586,6 @@ async function procImg(isLvl, isRed) {
       }
     }
   }
-  console.log("TEST: "+pDst.data[0] +" "+ pDst.data[1] +" "+ pDst.data[2] +" "+ pDst.data[3]);
-  console.log("TEST: "+pDst.data[4] +" "+ pDst.data[5] +" "+ pDst.data[6] +" "+ pDst.data[7]);
-  //canvas.getContext('2d').putImageData(pDst, 0, 0);
 }
 
 var pxInd, stInd;
@@ -664,8 +599,6 @@ function byteToStr(v) {
   return s.slice(-2);
 }
 
-function oldbyteToStr(v){return String.fromCharCode((v & 0xF) + 97, ((v >> 4) & 0xF) + 97);}
-function oldwordToStr(v){return byteToStr(v&0xFF) + byteToStr((v>>8)&0xFF);}
 
 function wordToStr(v) { 
   var s= byteToStr(v&0xFF) + byteToStr((v>>8)&0xFF);
@@ -719,9 +652,6 @@ function u_data(a, c, k1, k2) {
 }
 
 function u_data2(a, c, k1, k2, next) {
-  //w = dispW = canvas.width;
-  //h = dispH = canvas.height;
-
   rqMsg = '';
 
   if (c == -1) {
@@ -753,26 +683,6 @@ function u_data2(a, c, k1, k2, next) {
     }
   }
 
-
-  console.log("Pasamos a simular el ajax");
-  /*if (!$('#device-selec :selected').val()) {
-    alert("Please select device before uploading");
-    return;
-  }
-
-  var mac = $('#device-selec :selected').val().split("@")[1];
-
-  $.ajax({
-    url: host,
-    type: 'PUT',
-    data: JSON.stringify({ mac: mac, w: w, h: h, type: getScreenTypefrom_epdInd(epdInd), data: rqMsg, dataNext: nextMsg }),
-
-    contentType: "application/json",
-    success: function(data) {
-      console.log("Data received: " + data);
-    }
-  });*/
-
   return rqMsg;
 }
 
@@ -795,16 +705,14 @@ function u_line(a, k1, k2) {
 function uploadImage() {
   w = dW;
   h = dH;
-  //var p = canvas.getContext('2d').getImageData(0, 0, w, h);
-  //La imagen está en p
-  //console.log("p: "+pDst.data);
+
   var a = new Array(w * h);
   var i = 0;    
   for (var y = 0; y < h; y++)
     for (var x = 0; x < w; x++, i++) {
       a[i] = getVal(pDst, i << 2);
     }
-  console.log("a: "+a);
+  //console.log("a: "+a);
 
   dispX = 0;
   pxInd = 0;
@@ -885,83 +793,6 @@ var palArr = [
     [640, 384, 5]
   ];
 
-
-function drop(e) {
-  e.stopPropagation();
-  e.preventDefault();
-  var files = e.dataTransfer.files;
-  processFiles(files);
-}
-
-function ignoreDrag(e) {
-  e.stopPropagation();
-  e.preventDefault();
-}
-
-function getNud(nm, vl) {
-  return '<td class="comment">' + nm + ':</td>' +
-  '<td><input id="nud_' + nm + '" class="nud"type="number" value="' + vl + '"/></td>';
-}
-
-function Btn(nm, tx, fn) {
-  return '<div><label class="menu_button" for="_' + nm + '">' + tx + '</label>' +
-  '<input class="hidden_input" id="_' + nm + '" type="' +
-  (nm == 0 ? 'file" onchange="' : 'button" onclick="') + fn + '"/></div>';
-}
-
-function RB(vl, tx) {
-  return ((vl % 3) > 0 ? ' ' : '<br>') + '<input type="radio" name="kind" value="m' + vl +
-  '" onclick="rbClick(' + vl + ');"' + (vl == 0 ? 'checked="true"' : '') + '/>' + tx;
-}
-
-/*
-window.onload = function() {
-  srcBox = getElm('srcBox');
-  srcBox.ondragenter = ignoreDrag;
-  srcBox.ondragover = ignoreDrag;
-  srcBox.ondrop = drop;
-  srcImg = 0;
-  epdInd = 0;
-  
-
-  setInn('BT',
-    Btn(0, 'Select image file', 'processFiles(this.files);') +
-    Btn(1, 'Level: mono', 'procImg(true,false);') +
-    Btn(2, 'Level: color', 'procImg(true,true);') +
-    Btn(3, 'Dithering: mono', 'procImg(false,false);') +
-    Btn(4, 'Dithering: color', 'procImg(false,true);') +
-    Btn(5, 'Upload image', 'uploadImage();')
-  );
-
-  setInn('XY', getNud('x', '0') + getNud('y', '0'));
-
-  setInn('WH', getNud('w', '200') + getNud('h', '200'));
-
-  setInn('RB', 
-    RB(0, '1.54&ensp;') + 
-    RB(1, '1.54b') + 
-    RB(2, '1.54c') +
-    RB(3, '2.13&ensp;') + 
-    RB(4, '2.13b') + 
-    RB(5, '2.13c') + 
-    RB(6, '2.13d') +
-    RB(7, '2.7&ensp;&ensp;') + 
-    RB(8, '2.7b&ensp;') +
-    RB(9, '2.9&ensp;&ensp;') + 
-    RB(10, '2.9b&ensp;') + 
-    RB(11, '2.9c&ensp;') +
-    RB(12, '4.2&ensp;&ensp;') + 
-    RB(13, '4.2b&ensp;') + 
-    RB(14, '4.2c&ensp;') +
-    RB(15, '5.83&ensp;') + 
-    RB(16, '5.83b') + 
-    RB(17, '5.83c') +
-    RB(18, '7.5&ensp;&ensp;') + 
-    RB(19, '7.5b&ensp;') + 
-    RB(20, '7.5c&ensp;')
-  );
-}
-*/
 function getIndexFromType (edpType){   
   switch (edpType) {
     case "1.54": 
@@ -1008,52 +839,5 @@ function getIndexFromType (edpType){
       return "20";
     default:
       return "";
-  }
-}
-
-function getScreenTypefrom_epdInd (Index){   
-  switch (Index) {
-    case 0:
-    return "1.54";       
-    case 1:
-    return "1.54b"; 
-    case 2:
-    return "1.54c"; 
-    case 3:
-    return "2.13"; 
-    case 4:
-    return "2.13b"; 
-    case 5:
-    return "2.13c";       
-    case 6:
-    return "2.13d"; 
-    case 7:
-    return "2.7"; 
-    case 8:
-    return "2.7b"; 
-    case 9:
-    return "2.9"; 
-    case 10:
-    return "2.9b";       
-    case 11:
-    return "2.9c"; 
-    case 12:
-    return "4.2"; 
-    case 13:
-    return "4.2b"; 
-    case 14:
-    return "4.2c"; 
-    case 15:
-    return "5.83";       
-    case 16:
-    return "5.83b"; 
-    case 17:
-    return "5.83c"; 
-    case 18:
-    return "7.5"; 
-    case 19:
-    return "7.5b"; 
-    case 20:
-    return "7.5c";   
   }
 }
