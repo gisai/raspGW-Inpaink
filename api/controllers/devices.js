@@ -13,38 +13,36 @@ var wantToConnect = false;
 var wantToGetName = false;
 var idToGet = '';
 var deviceFound = '';
-
-var response,timeout;
-
-var macaddress;
-var data;
-var w;
-var h;
-var type; 
-
-var dataNext;
-
 var discoveredDevices = {};
 var devCount = 0;
 
+var response,timeout, macaddress, 
+  data, w, h, type, dataNext;
+
 const sleep = (waitTimeInMs) => new Promise(resolve => setTimeout(resolve, waitTimeInMs));
 
+
+/*
+ * Event listener for "BLE Discover"
+ */
 noble.on('discover', peripheral => {
   console.log('Device discovered with name: '+peripheral.advertisement.localName);
   const id = peripheral.id;
+  //If only want to get if device exists and get name
   if(wantToGetName){
     console.log("Checking if "+id+" is the same as"+ idToGet);
-    if (id === idToGet){
-      deviceFound = peripheral.advertisement.localName;
-    }
+    if (id === idToGet) deviceFound = peripheral.advertisement.localName;
   }
+  //If want to connect and send image
   else if(wantToConnect){
     const name = peripheral.advertisement.localName;
     if (id != idToGet) return;
     noble.stopScanning();
     console.log(`Connecting to '${name}' ${peripheral.id}`);
+    //Connect!
     connectAndSetUp(peripheral);
     wantToConnect = false;
+  //Otherwise, we want to scan for devices
   }else{
     var newDevice = {
       "id": devCount,
@@ -59,6 +57,9 @@ noble.on('discover', peripheral => {
   }
 });
 
+/*
+ * Perform a connection with a peripheral
+ */
 function connectAndSetUp(peripheral) {
 
   peripheral.on('disconnect', () => console.log('disconnected'));
@@ -67,7 +68,7 @@ function connectAndSetUp(peripheral) {
     console.log('Connected to', peripheral.id);
     connected = peripheral;
 
-    // specify the services and characteristics to discover
+    // specify the services and characteristics to filter discovering
     const serviceUUIDs = [SERVICE_UUID];
     const characteristicUUIDs = [CHARACTERISTIC_UUID];
 
@@ -79,11 +80,15 @@ function connectAndSetUp(peripheral) {
   });
 }
 
+/*
+ * Event listener when characteristics discovered
+ * Set the callback for a received notification
+ */
 function onServicesAndCharacteristicsDiscovered(error, services, characteristics) {
   console.log('Discovered services and characteristics');
   const epdCharacteristic = characteristics[0];
 
-  // data callback receives notifications
+  // Function that process new data received
   function processData(buffer) {
     console.log('Read message: "' + buffer + '"');
     if (buffer.toString() == 'Ok!' && status == 0 && type !=1) {
@@ -158,11 +163,11 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       });
       status = 4;
       console.log("Desconectamos....");
+      screenDisconect(false);
+      clearTimeout(timeout);
       return response.send({
         message: 'Success at updating the device: ' + macaddress,
       });
-      screenDisconect(true);
-      clearTimeout(timeout);
     } else if (buffer.toString() == 'Ok!' && status == 1 && type == 1) {
       //Hacemos el Next
 
@@ -216,15 +221,18 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
       });
       status = 4;
       console.log("Desconectamos....");
+      screenDisconect(false);
+      clearTimeout(timeout);
       return response.send({
         message: 'Success at updating the device: ' + macaddress,
       });
-      screenDisconect(true);
-      clearTimeout(timeout);
     }
   trytoread();
   }
 
+  /*
+   * Active read new data on peripheral
+   */
   async function trytoread(){
     if(status != 4){
       let data = "not";
@@ -250,14 +258,14 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
   }          
 };
 
-function screenDisconect(resp) {
+function screenDisconect(needResp) {
   try{
     connected.disconnect();
     connected = false;
   }catch(error){console.log(error);}
   connected = false;
   noble.stopScanning();
-  if (!resp)
+  if (needResp)
     response.status(200).json({message: 'ERROR at updating the device: '});
 }
 
@@ -368,7 +376,7 @@ async function initUpload(res){
   console.log("FINAL");
   noble.startScanning([SERVICE_UUID], false);   
 
-  timeout = setTimeout(screenDisconect, 20000, false);  
+  timeout = setTimeout(screenDisconect, 20000, true);  
 }
 
 
@@ -377,7 +385,6 @@ async function initUpload(res){
 var multer = require('multer'); 
 var fs = require('fs');
 var Jimp = require('jimp');
-
 
 //Paths
 var folder = './Uploads/';
@@ -408,7 +415,7 @@ var upload = multer({
     }
 }).single('image'); 
 
-/*.......*/
+/*.....................................................................................*/
 
 var srcBox, srcImg, sourceJimp, dstImg;
 var epdInd, nud_h, nud_w, nud_x, nud_y;
@@ -418,8 +425,6 @@ function rbClick(index) {
   console.log("Index selected: "+index)
   nud_w = +epdArr[index][0];
   nud_h = +epdArr[index][1];
-  //nud_x = +epdArr[index][0];
-  //nud_y = +epdArr[index][1];
   nud_x = 0;
   nud_y = 0;
   epdInd = index;
