@@ -148,13 +148,28 @@ window.onload = function() {
 
   setInn('WH', getNud('w', '200') + getNud('h', '200'));
 
-  setInn('RB', RB(0, '1.54&ensp;') + RB(1, '1.54b') + RB(2, '1.54c') +
-    RB(3, '2.13&ensp;') + RB(4, '2.13b') + RB(5, '2.13c') + RB(6, '2.13d') +
-    RB(7, '2.7&ensp;&ensp;') + RB(8, '2.7b&ensp;') +
-    RB(9, '2.9&ensp;&ensp;') + RB(10, '2.9b&ensp;') + RB(11, '2.9c&ensp;') +
-    RB(12, '4.2&ensp;&ensp;') + RB(13, '4.2b&ensp;') + RB(14, '4.2c&ensp;') +
-    RB(15, '5.83&ensp;') + RB(16, '5.83b') + RB(17, '5.83c') +
-    RB(18, '7.5&ensp;&ensp;') + RB(19, '7.5b&ensp;') + RB(20, '7.5c&ensp;')
+  setInn('RB', 
+    RB(0, '1.54&ensp;') + 
+    RB(1, '1.54b') + 
+    RB(2, '1.54c') +
+    RB(3, '2.13&ensp;') + 
+    RB(4, '2.13b') + 
+    RB(5, '2.13c') + 
+    RB(6, '2.13d') +
+    RB(7, '2.7&ensp;&ensp;') + 
+    RB(8, '2.7b&ensp;') +
+    RB(9, '2.9&ensp;&ensp;') + 
+    RB(10, '2.9b&ensp;') + 
+    RB(11, '2.9c&ensp;') +
+    RB(12, '4.2&ensp;&ensp;') + 
+    RB(13, '4.2b&ensp;') + 
+    RB(14, '4.2c&ensp;') +
+    RB(15, '5.83&ensp;') + 
+    RB(16, '5.83b') + 
+    RB(17, '5.83c') +
+    RB(18, '7.5&ensp;&ensp;') + 
+    RB(19, '7.5b&ensp;') + 
+    RB(20, '7.5c&ensp;')
   );
 }
 
