@@ -62,7 +62,10 @@ noble.on('discover', peripheral => {
  */
 function connectAndSetUp(peripheral) {
 
-  peripheral.on('disconnect', () => console.log('disconnected'));
+  peripheral.once('disconnect', () => {
+    peripheral.disconnect();
+    console.log('disconnected')
+  });
 
   peripheral.connect(error => {
     console.log('Connected to', peripheral.id);
@@ -177,9 +180,9 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
 
       epdCharacteristic.write(Buffer.from('N', 'ascii'), function(err, bytesWritten) {
         if (err) console.log(err);
-        console.log("wrote: N");
-        status = 2;                      
+        console.log("wrote: N");                      
       });
+      status = 2;
     } else if (buffer.toString() == 'Ok!' && status == 2 && type == 1) {
       //Hacemos el Load del Next
       //let dataNext = req.body.dataNext;
@@ -241,11 +244,12 @@ function onServicesAndCharacteristicsDiscovered(error, services, characteristics
         if (err) console.log(err);
         console.log("READ: "+read);
         data = read;
+        if (data != "Ok!"){
+          trytoread();
+        } else {
+          processData(data);
+        }
       });
-      while (data != "Ok!"){
-        await sleep(100);
-      }
-      processData(data);
     }
   }
 
@@ -264,7 +268,9 @@ async function screenDisconect(needResp) {
     await sleep(1000);
     connected.disconnect();
     connected = false;
-  }catch(error){console.log(error);}
+  }catch(error){
+    console.log(error);
+  }
   connected = false;
   noble.stopScanning();
   waiting = false;
@@ -341,6 +347,7 @@ async function initUpload(res){
   wantToGetName = false;
   if(deviceFound === ''){
     wantToGetName = false;
+    waiting = false;
     console.log('Device not found!!!')
     res.status(404).json({error:'Device not found'});
     return;
@@ -349,6 +356,7 @@ async function initUpload(res){
   noble.stopScanning();
   var detectedIndex = getIndexFromType(deviceFound.split("-")[1]);
   if(detectedIndex === ""){
+    waiting = false;
     console.log('Device name malformed')
     res.status(400).json({error:'Device name malformed'});
     return;
@@ -357,7 +365,7 @@ async function initUpload(res){
   console.log('Comenzamos tratamiento de IMAGEN...');
   await processFiles();
   console.log('Dithering IMAGEN...');
-  await procImg(true,false);
+  await procImg(false,false);
 
   console.log('Construimos el payload Imagen');
   uploadImage();
@@ -395,9 +403,6 @@ var fileName = 'image.bmp';
 
 //MAC Validation
 var macRegex = RegExp(/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/);
-
-//BLocking
-var waiting = false;
 
 //Storage Path and FIlename for images
 var Storage = multer.diskStorage({ 
